@@ -15,15 +15,11 @@ const featuresRoutes = require('./routes/features');
 // Security middleware
 app.use(helmet());
 
-// CORS - IMPORTANT: Allow your GoDaddy domain
+// CORS - Allow your domain
 app.use(cors({
-  origin: [
-    'https://marketwin.ai',
-    'http://marketwin.ai',
-    'https://www.marketwin.ai',
-    'http://www.marketwin.ai',
-    'http://localhost:3000' // for testing
-  ],
+  origin: ['https://marketwin.ai', 'http://marketwin.ai', 'https://www.marketwin.ai', 'http://www.marketwin.ai'],
+  credentials: true
+}));
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
