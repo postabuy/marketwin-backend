@@ -45,13 +45,32 @@ router.post('/register', async (req, res) => {
         features: user.features
       }
     });
-  } catch (err) {
-    console.error('Registration error:', err);
+ } catch (err) {
+    console.error('Registration error:', err.message);
+    console.error('Full error:', err);
+    
+    // Check for duplicate email
+    if (err.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email already exists'
+      });
+    }
+    
+    // Check for validation errors
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: Object.values(err.errors).map(e => e.message).join(', ')
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      error: 'Server error during registration. Please try again.'
+      error: 'Server error during registration. Please try again.',
+      details: err.message // Temporarily show error details
     });
-  }
+}
 });
 
 // @route   POST /api/auth/login
