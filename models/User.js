@@ -39,6 +39,10 @@ const UserSchema = new mongoose.Schema({
     enum: ['restaurant', 'retail', 'healthcare', 'fitness', 'beauty', 'automotive', 'professional', 'home-services', 'education', 'entertainment', 'other'],
     default: 'other'
   },
+  businessDescription: {
+    type: String,
+    maxlength: 500
+  },
   subscription: {
     plan: {
       type: String,
@@ -49,7 +53,14 @@ const UserSchema = new mongoose.Schema({
       type: String,
       enum: ['active', 'inactive', 'cancelled', 'past_due'],
       default: 'active'
-    }
+    },
+    startDate: {
+      type: Date,
+      default: Date.now
+    },
+    endDate: Date,
+    stripeCustomerId: String,
+    stripeSubscriptionId: String
   },
   features: {
     googleMyBusiness: { type: Boolean, default: false },
@@ -57,8 +68,275 @@ const UserSchema = new mongoose.Schema({
     reviewManagement: { type: Boolean, default: false },
     emailMarketing: { type: Boolean, default: false }
   },
-  createdAt: { type: Date, default: Date.now }
+  // Usage tracking for plan limits
+  usage: {
+    aiContent: { type: Number, default: 0 },
+    socialPosts: { type: Number, default: 0 },
+    emailCampaigns: { type: Number, default: 0 },
+    reviewsMonitored: { type: Number, default: 0 },
+    lastUpdated: Date,
+    resetDate: Date
+  },
+  // Social platform connections
+  socialConnections: {
+    linkedinConnected: { type: Boolean, default: false },
+    linkedinAccessToken: String,
+    linkedinProfileId: String,
+    linkedinTokenExpiry: Date,
+    tiktokConnected: { type: Boolean, default: false },
+    tiktokAccessToken: String,
+    tiktokUserId: String,
+    tiktokTokenExpiry: Date,
+    facebookConnected: { type: Boolean, default: false },
+    facebookAccessToken: String,
+    facebookPageId: String,
+    instagramConnected: { type: Boolean, default: false },
+    instagramAccessToken: String,
+    instagramBusinessId: String,
+    twitterConnected: { type: Boolean, default: false },
+    twitterAccessToken: String,
+    twitterUserId: String,
+    threadsConnected: { type: Boolean, default: false },
+    threadsAccessToken: String,
+    threadsUserId: String
+  },
+  // Business integrations
+  googlePlaceId: String,
+  connectedPlatforms: [String],
+  lastReviewCheck: Date,
+  // Automation settings
+  automation: {
+    enabled: { type: Boolean, default: false },
+    dailyPostTime: { type: String, default: '09:00' },
+    contentPreferences: {
+      tone: {
+        type: String,
+        enum: ['professional', 'casual', 'friendly', 'authoritative', 'humorous'],
+        default: 'professional'
+      },
+      topics: [String],
+      hashtags: [String]
+    }
+  },
+  // Target audience for AI content
+  targetAudience: {
+    type: String,
+    default: 'Local customers and businesses'
+  },
+  createdAt: { type: Date, default: Date.now },
+  lastLogin: Date
 });
+
+// Plan limits configuration
+const PLAN_LIMITS = {
+  free: {
+    aiContent: 0,
+    socialPosts: 0,
+    emailCampaigns: 0,
+    reviewsMonitored: 10
+  },
+  local_boost: {
+    aiContent: 10,
+    socialPosts: 30,
+    emailCampaigns: 10,
+    reviewsMonitored: 100
+  },
+  growth_accelerator: {
+    aiContent: 50,
+    socialPosts: 100,
+    emailCampaigns: 50,
+    reviewsMonitored: 500
+  },
+  scale: {
+    aiContent: 200,
+    socialPosts: 500,
+    emailCampaigns: 200,
+    reviewsMonitored: 2000
+  },
+  enterprise: {
+    aiContent: -1, // unlimited
+    socialPosts: -1,
+    emailCampaigns: -1,
+    reviewsMonitored: -1
+  }
+};
+
+// Check if user can use a feature based on plan limits
+UserSchema.methods.canUseFeature = function(feature) {
+  const plan = this.subscription?.plan || 'free';
+  const limit = PLAN_LIMITS[plan][feature];
+  
+  if (limit === -1) return true; // unlimited
+  if (limit === 0) return false; // not available
+  
+  const currentUsage = this.usage?.[feature] || 0;
+  return currentUsage < limit;
+};
+
+// Increment usage counter
+UserSchema.methods.incrementUsage = async function(feature) {
+  if (!this.usage) {
+    this.usage = {};
+  }
+  
+  this.usage[feature] = (this.usage[feature] || 0) + 1;
+  this.usage.lastUpdated = new Date();
+  
+  // Check if we need to reset monthly usage
+  const now = new Date();
+  const resetDate = this.usage.resetDate;
+  
+  if (!resetDate || now.getMonth() !== resetDate.getMonth() || now.getFullYear() !== resetDate.getFullYear()) {
+    // Reset monthly counters
+    this.usage.aiContent = feature === 'aiContent' ? 1 : 0;
+    this.usage.socialPosts = feature === 'socialPosts' ? 1 : 0;
+    this.usage.emailCampaigns = feature === 'emailCampaigns' ? 1 : 0;
+    this.usage.reviewsMonitored = feature === 'reviewsMonitored' ? 1 : 0;
+    this.usage.resetDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  
+  await this.save();
+};
+
+// Get remaining credits for a feature
+UserSchema.methods.getRemainingCredits = function(feature) {
+  const plan = this.subscription?.plan || 'free';
+  const limit = PLAN_LIMITS[plan][feature];
+  
+  if (limit === -1) return 'unlimited';
+  if (limit === 0) return 0;
+  
+  const currentUsage = this.usage?.[feature] || 0;
+  return Math.max(0, limit - currentUsage);
+};
+
+// Get all plan features and limits
+UserSchema.methods.getPlanDetails = function() {
+  const plan = this.subscription?.plan || 'free';
+  return {
+    plan: plan,
+    limits: PLAN_LIMITS[plan],
+    usage: this.usage || {},
+    remaining: {
+      aiContent: this.getRemainingCredits('aiContent'),
+      socialPosts: this.getRemainingCredits('socialPosts'),
+      emailCampaigns: this.getRemainingCredits('emailCampaigns'),
+      reviewsMonitored: this.getRemainingCredits('reviewsMonitored')
+    }
+  };
+};
+
+// Check if a social platform is connected
+UserSchema.methods.isPlatformConnected = function(platform) {
+  const platformMap = {
+    'linkedin': 'linkedinConnected',
+    'tiktok': 'tiktokConnected',
+    'facebook': 'facebookConnected',
+    'instagram': 'instagramConnected',
+    'twitter': 'twitterConnected',
+    'threads': 'threadsConnected'
+  };
+  
+  const connectionField = platformMap[platform.toLowerCase()];
+  return this.socialConnections?.[connectionField] || false;
+};
+
+// Update social platform connection
+UserSchema.methods.connectPlatform = async function(platform, tokenData) {
+  if (!this.socialConnections) {
+    this.socialConnections = {};
+  }
+  
+  switch(platform.toLowerCase()) {
+    case 'linkedin':
+      this.socialConnections.linkedinConnected = true;
+      this.socialConnections.linkedinAccessToken = tokenData.accessToken;
+      this.socialConnections.linkedinProfileId = tokenData.profileId;
+      this.socialConnections.linkedinTokenExpiry = tokenData.expiry;
+      break;
+    case 'tiktok':
+      this.socialConnections.tiktokConnected = true;
+      this.socialConnections.tiktokAccessToken = tokenData.accessToken;
+      this.socialConnections.tiktokUserId = tokenData.userId;
+      this.socialConnections.tiktokTokenExpiry = tokenData.expiry;
+      break;
+    case 'facebook':
+      this.socialConnections.facebookConnected = true;
+      this.socialConnections.facebookAccessToken = tokenData.accessToken;
+      this.socialConnections.facebookPageId = tokenData.pageId;
+      break;
+    case 'instagram':
+      this.socialConnections.instagramConnected = true;
+      this.socialConnections.instagramAccessToken = tokenData.accessToken;
+      this.socialConnections.instagramBusinessId = tokenData.businessId;
+      break;
+    case 'twitter':
+      this.socialConnections.twitterConnected = true;
+      this.socialConnections.twitterAccessToken = tokenData.accessToken;
+      this.socialConnections.twitterUserId = tokenData.userId;
+      break;
+    case 'threads':
+      this.socialConnections.threadsConnected = true;
+      this.socialConnections.threadsAccessToken = tokenData.accessToken;
+      this.socialConnections.threadsUserId = tokenData.userId;
+      break;
+  }
+  
+  // Update connected platforms array
+  if (!this.connectedPlatforms) {
+    this.connectedPlatforms = [];
+  }
+  if (!this.connectedPlatforms.includes(platform)) {
+    this.connectedPlatforms.push(platform);
+  }
+  
+  await this.save();
+};
+
+// Disconnect social platform
+UserSchema.methods.disconnectPlatform = async function(platform) {
+  if (!this.socialConnections) return;
+  
+  switch(platform.toLowerCase()) {
+    case 'linkedin':
+      this.socialConnections.linkedinConnected = false;
+      this.socialConnections.linkedinAccessToken = undefined;
+      this.socialConnections.linkedinProfileId = undefined;
+      break;
+    case 'tiktok':
+      this.socialConnections.tiktokConnected = false;
+      this.socialConnections.tiktokAccessToken = undefined;
+      this.socialConnections.tiktokUserId = undefined;
+      break;
+    case 'facebook':
+      this.socialConnections.facebookConnected = false;
+      this.socialConnections.facebookAccessToken = undefined;
+      this.socialConnections.facebookPageId = undefined;
+      break;
+    case 'instagram':
+      this.socialConnections.instagramConnected = false;
+      this.socialConnections.instagramAccessToken = undefined;
+      this.socialConnections.instagramBusinessId = undefined;
+      break;
+    case 'twitter':
+      this.socialConnections.twitterConnected = false;
+      this.socialConnections.twitterAccessToken = undefined;
+      this.socialConnections.twitterUserId = undefined;
+      break;
+    case 'threads':
+      this.socialConnections.threadsConnected = false;
+      this.socialConnections.threadsAccessToken = undefined;
+      this.socialConnections.threadsUserId = undefined;
+      break;
+  }
+  
+  // Update connected platforms array
+  if (this.connectedPlatforms) {
+    this.connectedPlatforms = this.connectedPlatforms.filter(p => p !== platform);
+  }
+  
+  await this.save();
+};
 
 // Encrypt password before saving
 UserSchema.pre('save', async function(next) {
@@ -80,158 +358,5 @@ UserSchema.methods.getSignedJwtToken = function() {
 UserSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
-
-module.exports = mongoose.model('User', UserSchema);
-
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-  
-  // Business Profile (for AI analysis)
-  businessProfile: {
-    industry: String,
-    targetAudience: {
-      ageRange: { min: Number, max: Number },
-      gender: [String],
-      interests: [String],
-      location: {
-        radius: Number,
-        city: String,
-        state: String,
-        zip: String
-      }
-    },
-    competitors: [String],
-    uniqueSellingPoints: [String],
-    businessGoals: [String],
-    monthlyBudget: Number,
-    currentChallenges: [String]
-  },
-
-  // Google My Business Integration
-  integrations: {
-    googleMyBusiness: {
-      connected: { type: Boolean, default: false },
-      accessToken: String,
-      refreshToken: String,
-      businessId: String,
-      locationId: String,
-      metrics: {
-        views: Number,
-        searches: Number,
-        actions: Number,
-        calls: Number,
-        directions: Number,
-        websiteClicks: Number,
-        photos: Number,
-        lastUpdated: Date
-      }
-    },
-    
-    // Social Media Integrations
-    facebook: {
-      connected: { type: Boolean, default: false },
-      accessToken: String,
-      pageId: String,
-      pageName: String,
-      metrics: {
-        followers: Number,
-        engagement: Number,
-        reach: Number,
-        impressions: Number
-      }
-    },
-    instagram: {
-      connected: { type: Boolean, default: false },
-      accessToken: String,
-      businessAccountId: String,
-      username: String,
-      metrics: {
-        followers: Number,
-        engagement: Number,
-        reach: Number,
-        impressions: Number
-      }
-    },
-    twitter: {
-      connected: { type: Boolean, default: false },
-      accessToken: String,
-      accessTokenSecret: String,
-      userId: String,
-      username: String,
-      metrics: {
-        followers: Number,
-        engagement: Number,
-        impressions: Number
-      }
-    },
-    tiktok: {
-      connected: { type: Boolean, default: false },
-      accessToken: String,
-      openId: String,
-      username: String
-    },
-    
-    // Email Marketing
-    email: {
-      provider: String, // 'sendgrid', 'mailchimp', 'internal'
-      apiKey: String,
-      listId: String,
-      subscribers: [{ email: String, name: String, subscribedAt: Date }],
-      metrics: {
-        totalSubscribers: Number,
-        avgOpenRate: Number,
-        avgClickRate: Number
-      }
-    }
-  },
-
-  // AI Agent Configuration
-  aiAgent: {
-    enabled: { type: Boolean, default: true },
-    personality: String, // 'professional', 'friendly', 'casual', 'luxury'
-    tone: String,
-    autoPosting: { type: Boolean, default: true },
-    postingSchedule: {
-      facebook: [{ day: Number, time: String }],
-      instagram: [{ day: Number, time: String }],
-      twitter: [{ day: Number, time: String }],
-      email: [{ day: Number, time: String }]
-    },
-    contentPreferences: {
-      includeEmojis: Boolean,
-      hashtagCount: Number,
-      preferredTopics: [String]
-    }
-  },
-
-  // Campaign History
-  campaigns: [{
-    type: String,
-    platform: String,
-    content: String,
-    scheduledFor: Date,
-    status: String,
-    performance: {
-      impressions: Number,
-      clicks: Number,
-      conversions: Number,
-      cost: Number
-    },
-    aiGenerated: Boolean,
-    createdAt: Date
-  }],
-
-  // AI Insights
-  insights: [{
-    date: Date,
-    type: String, // 'optimization', 'warning', 'opportunity', 'success'
-    message: String,
-    actionTaken: String,
-    impact: String
-  }]
-});
-
-// ... rest of your existing User model code ...
 
 module.exports = mongoose.model('User', UserSchema);
