@@ -126,6 +126,10 @@ router.post('/multi-platform-post', protect, async (req, res) => {
         caption: content.substring(0, 150),
         hashtags: extractHashtags(content)
       },
+      threads: {
+        content: content.substring(0, 500),
+        hashtags: extractHashtags(content)
+      },
       facebook: content,
       instagram: {
         caption: content,
@@ -250,6 +254,51 @@ router.post('/tiktok-post', protect, async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: 'Failed to post to TikTok' 
+    });
+  }
+});
+
+// @route   POST /api/features/threads-post
+// @desc    Post specifically to Threads
+router.post('/threads-post', protect, async (req, res) => {
+  try {
+    const { content, mediaUrls, scheduledTime } = req.body;
+    
+    const user = await User.findById(req.user.id);
+    
+    if (!user.canUseFeature('socialPosts')) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Social post limit reached. Please upgrade.' 
+      });
+    }
+    
+    if (!user.threadsConnected) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Threads account not connected. Please connect your Threads account first.' 
+      });
+    }
+    
+    const result = await n8n.triggerThreadsPost({
+      userId: req.user.id,
+      content,
+      mediaUrls,
+      scheduledTime
+    });
+    
+    await user.incrementUsage('socialPosts');
+    
+    res.json({ 
+      success: true, 
+      post: result,
+      remainingPosts: user.getRemainingCredits('socialPosts')
+    });
+  } catch (error) {
+    console.error('Threads post error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to post to Threads' 
     });
   }
 });
