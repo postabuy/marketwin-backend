@@ -30,7 +30,20 @@ router.post('/register', async (req, res) => {
       businessName,
       businessType: businessType || 'other'
     });
-
+    
+// After user.create() successfully
+try {
+  await n8n.triggerOnboarding({
+    userId: user._id.toString(),
+    email: user.email,
+    businessName: user.businessName,
+    businessType: user.businessType,
+    plan: user.subscription?.plan || 'free'
+  });
+} catch (n8nError) {
+  console.error('N8N trigger failed:', n8nError);
+  // Don't fail registration if N8N fails
+}
     // Create token
     const token = user.getSignedJwtToken();
 
