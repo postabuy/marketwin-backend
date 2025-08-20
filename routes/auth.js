@@ -1,3 +1,5 @@
+const N8NAutomation = require('../services/n8nIntegration');
+const n8n = new N8NAutomation();
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
