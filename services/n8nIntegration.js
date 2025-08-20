@@ -121,6 +121,22 @@ class N8NAutomation {
     }
   }
 
+  async triggerThreadsPost(postData) {
+    try {
+      const response = await axios.post(`${this.webhookBase}/threads-post`, {
+        userId: postData.userId,
+        content: postData.content,
+        mediaUrls: postData.mediaUrls || [],
+        scheduledTime: postData.scheduledTime || null
+      });
+      console.log('Threads post triggered');
+      return response.data;
+    } catch (error) {
+      console.error('Threads post error:', error.message);
+      throw error;
+    }
+  }
+
   async triggerMultiPlatformPost(postData) {
     try {
       const response = await axios.post(`${this.webhookBase}/multi-platform-post`, {
