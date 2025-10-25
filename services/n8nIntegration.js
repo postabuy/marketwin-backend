@@ -3,7 +3,7 @@ const axios = require('axios');
 class N8NAutomation {
   constructor() {
     // REPLACE WITH YOUR N8N WEBHOOK URL
-    this.webhookBase = process.env.N8N_WEBHOOK_URL || 'https://your-workspace.app.n8n.cloud/webhook';
+    this.webhookBase = process.env.N8N_WEBHOOK_URL || https://marketwin.app.n8n.cloud/home/webhook;
   }
 
   async triggerOnboarding(userData) {
