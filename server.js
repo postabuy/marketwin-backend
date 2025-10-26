@@ -13,6 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 // Import routes
 const authRoutes = require('./routes/auth');
 const featuresRoutes = require('./routes/features');
+const dashboardRoutes = require('./routes/dashboard');  // ADD THIS LINE
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
