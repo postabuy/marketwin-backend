@@ -13,7 +13,8 @@ app.use(express.urlencoded({ extended: true }));
 // Import routes
 const authRoutes = require('./routes/auth');
 const featuresRoutes = require('./routes/features');
-const dashboardRoutes = require('./routes/dashboard');  // ADD THIS LINE
+const dashboardRoutes = require('./routes/dashboard');
+const aiContentRoutes = require('./routes/ai-content');  // NEW
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
@@ -35,7 +36,8 @@ app.get('/', (req, res) => {
 // Use routes
 app.use('/api/auth', authRoutes);
 app.use('/api/features', featuresRoutes);
-app.use('/api/dashboard', dashboardRoutes);  
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/ai-content', aiContentRoutes);  // NEW
 
 // Error handling middleware
 app.use((err, req, res, next) => {
