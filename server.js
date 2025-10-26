@@ -32,9 +32,10 @@ app.get('/', (req, res) => {
   });
 });
 
-// Routes
+// Use routes
 app.use('/api/auth', authRoutes);
 app.use('/api/features', featuresRoutes);
+app.use('/api/dashboard', dashboardRoutes);  
 
 // Error handling middleware
 app.use((err, req, res, next) => {
